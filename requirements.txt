@@ -2,3 +2,6 @@ fastapi[standard]
 uvicorn
 pytest
 httpx
+ruff
+pytest-cov
+commitizen

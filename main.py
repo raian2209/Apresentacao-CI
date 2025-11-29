@@ -3,16 +3,20 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
+
 class HealthCheck(BaseModel):
     status: str = "OK"
+
 
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
 
+
 @app.get("/teste")
 async def teste():
     return {"message": "Teste CI-CD"}
+
 
 @app.get(
     "/health",
@@ -25,6 +29,6 @@ async def teste():
 def get_health() -> HealthCheck:
     """
     ## Perform a Health Check
-    Endpoint to perform a healthcheck on. 
+    Endpoint to perform a healthcheck on.
     """
     return HealthCheck(status="OK")

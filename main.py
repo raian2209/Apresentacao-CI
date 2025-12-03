@@ -32,24 +32,3 @@ def get_health() -> HealthCheck:
     Endpoint to perform a healthcheck on.
     """
     return HealthCheck(status="OK")
-
-
-def processar_pagamento(valor: float, status: str) -> str:
-    if status == "pendente":      # Ramo 1
-        return "Aguardando"
-    elif status == "cancelado":   # Ramo 2
-        return "Cancelado"
-    elif valor > 1000:            # Ramo 3
-        return "Alto Valor"
-    else:                         # Ramo 4
-        return "Processado"
-
-def processar_pagamento(valor: float, status: str) -> str:
-    if status == "pendente":      # Ramo 1
-        return "Aguardando"
-    elif status == "cancelado":   # Ramo 2
-        return "Cancelado"
-    elif valor > 1000:            # Ramo 3
-        return "Alto Valor"
-    else:                         # Ramo 4
-        return "Processado"

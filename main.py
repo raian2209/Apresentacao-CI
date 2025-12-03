@@ -32,5 +32,3 @@ def get_health() -> HealthCheck:
     Endpoint to perform a healthcheck on.
     """
     return HealthCheck(status="OK")
-
-

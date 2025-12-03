@@ -8,11 +8,11 @@ Este projeto adota uma arquitetura GitOps baseada em dois repositórios distinto
 1.  **Repositório da Aplicação (`Apresentacao-CI` - este repositório):**
 
       * **Responsabilidade:** Contém o código-fonte da aplicação FastAPI, os testes automatizados (`pytest`) e a definição do contêiner (`Dockerfile`).
-      * **Pipeline de CI:** O workflow do GitHub Actions neste repositório é responsável por testar o código, construir a imagem Docker e publicá-la no Docker Hub com uma tag de versão semântica.
+      * **Pipeline de CI:** O workflow valida a qualidade do código (Linting, Formatting, Commit Messages), executa testes e publica a imagem Docker versionada.
 
 2.  **Registro de Contêiner (Docker Hub):**
 
-      * **Responsabilidade:** Atua como o repositório central para as imagens Docker versionadas da aplicação. É a fonte de onde o cluster Kubernetes irá baixar os artefatos para implantação.
+      * **Responsabilidade:** Armazenar as imagens imutáveis geradas pelo pipeline, prontas para serem consumidas por orquestradores (como Kubernetes).
 
 Link: <https://hub.docker.com/r/raian2209/hello-app>
 
@@ -24,7 +24,6 @@ Link: <https://hub.docker.com/r/raian2209/hello-app>
   * **Containerização:** Docker
   * **CI/CD:** GitHub Actions
   * **Registro de Contêiner:** Docker Hub
-  * **Orquestração:** Kubernetes
 
 
 
@@ -90,38 +89,29 @@ Este workflow automatiza o processo de teste, construção, versionamento e a pr
 
 ### Gatilho (Trigger)
 
-O pipeline é acionado automaticamente sempre que uma nova **tag Git** no formato `v*` (ex: `v0.1.0`, `v1.2.3`) é enviada (push) para o repositório. Isso garante que apenas versões formalmente designadas gerem um novo artefato de implantação.
+*   **Push de Tags (`v*`):** Dispara o processo completo de build e publicação da imagem (Release).
+*   **Pull Request (`main`):** Dispara apenas as verificações de qualidade e testes para proteger a branch principal.
 
-### Permissões
+### 1. Job: Code Quality (`code-quality`)
+Este job atua como um **Quality Gate**. Se qualquer passo falhar, o pipeline é interrompido.
 
-O bloco `permissions` é configurado para conceder ao `GITHUB_TOKEN` as permissões necessárias para que as actions possam escrever no repositório (para o checkout) e criar Pull Requests.
+1.  **Checkout & Setup:** Prepara o ambiente Python 3.10.
+2.  **Check Commit Messages:**
+    *   Utiliza `cz check` (Commitizen) para validar se as mensagens dos commits seguem o padrão **Conventional Commits** (ex: `feat:...`, `fix:...`). Isso é crucial para automação de changelogs.
+3.  **Lint and Format (Ruff):**
+    *   Verifica a formatação do código e erros lógicos/estilísticos com `ruff`. O pipeline falha se o código não estiver em conformidade.
+4.  **Lint Dockerfile (Hadolint):**
+    *   Analisa o `Dockerfile` em busca de violações de segurança e boas práticas (ex: rodar como root, versões não fixadas).
+5.  **Run tests (Pytest):**
+    *   Executa a suíte de testes com relatório de cobertura.
 
-### Passos do Job (`build-and-push`)
+### 2. Job: Build & Push (`build-and-push`)
+Executado apenas se o job de qualidade passar e o gatilho for uma **Tag**.
 
-1.  **Checkout & Setup:**
-
-      * `actions/checkout@v4`: Baixa o código-fonte do repositório.
-      * `actions/setup-python@v5`: Configura o ambiente Python 3.10.
-      * `Install dependencies`: Instala as bibliotecas listadas no `requirements.txt`.
-
-2.  **Teste Automatizado (Quality Gate):**
-
-      * `Run tests with pytest`: Executa a suíte de testes. **Este é um portão de qualidade crítico.** Se qualquer teste falhar, o workflow é interrompido imediatamente, impedindo que código com defeito seja empacotado ou implantado.
-
-3.  **Construção e Publicação da Imagem Docker:**
-
-      * `Set up QEMU` & `Set up Docker Buildx`: Configuram o ambiente para a construção de imagens Docker.
-      * `Login to Docker Hub`: Autentica-se no Docker Hub usando os secrets `DOCKER_USERNAME` e `DOCKER_PASSWORD`. 
-      * `Extract version from Git tag`: Extrai o nome da tag Git (ex: `v0.1.0`) e o armazena na variável de ambiente `IMAGE_TAG`.
-      * `Build and push Docker image`: Constrói a imagem Docker e a publica no Docker Hub, usando a versão extraída da tag Git para nomear a imagem (ex: `seu-usuario/hello-app:v0.1.0`).
-
-4.  **Atualização do Manifesto (Entrega Contínua):**
-
-      * `Checkout manifest repository`: Clona o repositório de manifestos (`raian2209/manifestsCI-PythonAPI`) para um diretório separado, usando uma `SSH_PRIVATE_KEY` para autenticação. 
-      * `Update Kubernetes manifest`: Usa o comando `sed` para encontrar e substituir a tag da imagem no arquivo `deployment.yaml` pela nova `IMAGE_TAG`.
-      * `Create or Update Pull Request`: Utiliza a action `peter-evans/create-pull-request` para criar ou atualizar um Pull Request no repositório de manifestos. 
-          * Usa uma branch fixa (`automated-manifest-updates`) para evitar a criação de múltiplas branches.
-          * Requer um `CROSS_REPO_PAT` (Personal Access Token) para ter permissão de criar o PR em outro repositório.
+1.  **Setup Docker:** Configura QEMU e Docker Buildx.
+2.  **Login:** Autenticação no Docker Hub via Secrets.
+3.  **Extract Version:** Captura a versão da tag Git (ex: `v1.0.0`) para usar como tag da imagem.
+4.  **Build and Push:** Constrói a imagem e envia para o Docker Hub (`${{ secrets.DOCKER_USERNAME }}/hello-app:${{ env.IMAGE_TAG }}`).
 
 ## 🏷️ Como Fazer um Release (Acionar o Pipeline)
 
@@ -147,51 +137,3 @@ Para que o workflow funcione, os seguintes segredos devem ser configurados em **
 | :--- | :--- | :--- |
 | `DOCKER_USERNAME` | Seu nome de usuário do Docker Hub. | - |
 | `DOCKER_PASSWORD` | Um Token de Acesso do Docker Hub (não sua senha). | Vá para Docker Hub \> Account Settings \> Security \> New Access Token. |
-| `SSH_PRIVATE_KEY` | A chave SSH privada para dar ao workflow permissão de escrita no repositório de manifestos. | Execute `ssh-keygen -t ed25519 -f deploy_key` localmente. A chave pública (`deploy_key.pub`) deve ser adicionada como uma "Deploy Key" com permissão de escrita no repositório `manifestsCI-PythonAPI`. [7] |
-| `CROSS_REPO_PAT` | Um Personal Access Token (Classic) do GitHub com escopo `repo`. | Vá para GitHub \> Settings \> Developer settings \> Personal access tokens \> Tokens (classic) \> Generate new token. |
-
-## 🌐 Processo de Implantação (Deployment)
-
-1.  Após o workflow ser concluído com sucesso, um Pull Request será aberto (ou atualizado) no repositório `manifestsCI-PythonAPI`.
-2.  Um membro da equipe deve revisar as alterações (a atualização da tag da imagem) e aprovar o Pull Request.
-3.  Uma vez que o PR é mesclado na branch `main`, o ArgoCD, que está monitorando este repositório, detectará a mudança.
-4.  O ArgoCD iniciará automaticamente o processo de sincronização, aplicando o novo manifesto e fazendo o Kubernetes realizar um *rolling update* da aplicação para a nova versão. 
-
-
-## Evidencias / Entregas
-
-1. Build e push da imagem no Docke Hub
-Workflow Triger:
-
-![Buildpush1](./evidencias/BuildAplication.png)
-
-Branch Modificada diretamente (DEV):
-
-![Buildpush2](./evidencias/BuildPush2.png)
-
-Abre push na branch main:
-
-![Buildpush3](./evidencias/BuildPush.png)
-
-
-2. argoCD sincronizado
-
-![argocdSync](./evidencias/argocd.png)
-
-3. Get all Pods 
-
-![get](./evidencias/getpodst.png)
-
-4. response  da aplicação 
-
-![ResponseBroswer](./evidencias/response_ci.png)
-
-![Curl](./evidencias/response_cid.png)
-
-5. atualisação automatica:
-
-Foi feito um push , adicionando este endPoint a aplicação:
-![testecicd](./evidencias/testeci-cd2.png)
-
-Endpoint funcionando depois de sync na aplicação: 
-![testecicd](./evidencias/teste-ci-cd.png)
